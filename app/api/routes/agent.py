@@ -37,6 +37,15 @@ async def query_agent(payload: AgentQueryRequest, request: Request) -> AgentQuer
     )
     workflow = domain_workflows.get(selected_domain)
     if workflow is None:
+        if (
+            selected_domain is EvidenceDomain.KNOWLEDGE_OPERATION
+            and request.app.state.knowledge_bootstrap_error is not None
+        ):
+            raise AppException(
+                code="KNOWLEDGE_UNAVAILABLE",
+                message="Knowledge domain bootstrap failed",
+                status_code=503,
+            )
         raise AppException(
             code="DOMAIN_NOT_CONFIGURED",
             message=f"Domain workflow is not configured: {selected_domain.value}",

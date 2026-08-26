@@ -73,7 +73,8 @@ def test_knowledge_workflow_returns_cited_evidence() -> None:
     evidence = result["evidence"][0]
     assert evidence.domain is EvidenceDomain.KNOWLEDGE_OPERATION
     assert evidence.evidence_type is EvidenceType.FACT
-    assert evidence.confidence == 0.92
+    assert evidence.value["score"] == 0.92
+    assert evidence.confidence is None
     assert evidence.value["citation"]["chunk_id"] == "membership-rules:0001"
     assert "来源：data/demo_knowledge/membership_rules.md" in result["final_answer"]
     service.search.assert_awaited_once_with(

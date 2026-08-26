@@ -7,6 +7,8 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_DATABASE_URL = f"sqlite:///{(PROJECT_ROOT / 'data' / 'moneki.db').as_posix()}"
+KNOWLEDGE_INDEX_PATH = PROJECT_ROOT / "data" / "knowledge_index.json"
+DEMO_KNOWLEDGE_DIR = PROJECT_ROOT / "data" / "demo_knowledge"
 
 
 class Settings(BaseSettings):

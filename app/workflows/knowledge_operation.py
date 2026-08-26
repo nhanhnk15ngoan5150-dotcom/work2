@@ -62,7 +62,7 @@ class KnowledgeOperationWorkflow:
                 f"{metadata.knowledge_base_id}:"
                 f"{metadata.document_id}:{metadata.chunk_id}:{metadata.version}"
             ),
-            confidence=result.score if 0.0 <= result.score <= 1.0 else None,
+            confidence=None,
         )
 
     # 3. 使用 Citation 生成确定性回答

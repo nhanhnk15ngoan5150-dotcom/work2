@@ -1,16 +1,23 @@
+import logging
 from contextlib import asynccontextmanager
-from pathlib import Path
 
 from fastapi import FastAPI
 
 from app.api.routes.agent import router as agent_router
 from app.api.routes.health import router as health_router
-from app.core.config import Settings, get_settings
+from app.core.config import (
+    DEMO_KNOWLEDGE_DIR,
+    KNOWLEDGE_INDEX_PATH,
+    PROJECT_ROOT,
+    Settings,
+    get_settings,
+)
 from app.core.exceptions import register_exception_handlers
 from app.core.logging import configure_logging
 from app.contracts.domains import DomainWorkflow
 from app.contracts.evidence import EvidenceDomain
 from app.contracts.knowledge import KnowledgeMetadata
+from app.contracts.providers import EmbeddingProvider
 from app.middleware.request_id import RequestIDMiddleware
 from app.domains.business.product_service import ProductService
 from app.domains.business.repository import BusinessDataRepository
@@ -35,8 +42,14 @@ from app.workflows.business_data import BusinessDataWorkflow
 from app.workflows.external_factor import ExternalFactorWorkflow
 from app.workflows.knowledge_operation import KnowledgeOperationWorkflow
 
+logger = logging.getLogger(__name__)
 
-def create_app(settings: Settings | None = None) -> FastAPI:
+
+def create_app(
+    settings: Settings | None = None,
+    *,
+    embedding_provider_override: EmbeddingProvider | None = None,
+) -> FastAPI:
     """Create and configure the FastAPI application."""
     # 1. 加载应用配置
     app_settings = settings or get_settings()
@@ -62,19 +75,23 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         EvidenceDomain.EXTERNAL_FACTOR: external_factor_workflow,
     }
 
-    embedding_provider: OpenAICompatibleEmbeddingProvider | None = None
+    embedding_provider: EmbeddingProvider | None = embedding_provider_override
+    owned_embedding_provider: OpenAICompatibleEmbeddingProvider | None = None
     knowledge_indexer: KnowledgeIndexer | None = None
-    if (
+    if embedding_provider is None and (
         app_settings.embedding_provider == "openai_compatible"
         and app_settings.embedding_api_key
     ):
-        embedding_provider = OpenAICompatibleEmbeddingProvider(
+        owned_embedding_provider = OpenAICompatibleEmbeddingProvider(
             base_url=app_settings.embedding_base_url,
             api_key=app_settings.embedding_api_key,
             model=app_settings.embedding_model,
         )
+        embedding_provider = owned_embedding_provider
+
+    if embedding_provider is not None:
         embedding_service = EmbeddingService(embedding_provider)
-        vector_store = LocalVectorStore(Path("data/knowledge_index.json"))
+        vector_store = LocalVectorStore(KNOWLEDGE_INDEX_PATH)
         knowledge_indexer = KnowledgeIndexer(
             KnowledgeChunker(),
             embedding_service,
@@ -95,7 +112,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             ("membership-rules", "membership_rules.md"),
             ("rainy-day-sop", "rainy_day_sop.md"),
         ):
-            path = Path("data/demo_knowledge") / filename
+            path = DEMO_KNOWLEDGE_DIR / filename
             demo_documents.append(
                 parser.parse(
                     path,
@@ -104,23 +121,33 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                         domains=[EvidenceDomain.KNOWLEDGE_OPERATION],
                         knowledge_base_id="demo-operations",
                         document_id=document_id,
-                        source=path.as_posix(),
+                        source=path.relative_to(PROJECT_ROOT).as_posix(),
                         version="1.0",
                     ),
                 )
             )
 
     @asynccontextmanager
-    async def lifespan(_: FastAPI):
+    async def lifespan(lifespan_app: FastAPI):
         if knowledge_indexer is not None:
-            await knowledge_indexer.index(demo_documents)
+            try:
+                await knowledge_indexer.index(demo_documents)
+            except Exception as exc:
+                domain_workflows.pop(EvidenceDomain.KNOWLEDGE_OPERATION, None)
+                lifespan_app.state.knowledge_ready = False
+                lifespan_app.state.knowledge_bootstrap_error = (
+                    f"{type(exc).__name__}: {exc}"
+                )
+                logger.exception("knowledge_bootstrap_failed")
+            else:
+                lifespan_app.state.knowledge_ready = True
         try:
             yield
         finally:
             database_backend.dispose()
             await weather_provider.close()
-            if embedding_provider is not None:
-                await embedding_provider.close()
+            if owned_embedding_provider is not None:
+                await owned_embedding_provider.close()
 
     # 4. 创建应用并注册基础设施
     application = FastAPI(
@@ -134,6 +161,10 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     application.state.business_data_workflow = workflow
     application.state.external_factor_workflow = external_factor_workflow
     application.state.domain_workflows = domain_workflows
+    application.state.knowledge_ready = False
+    application.state.knowledge_bootstrap_error = None
+    application.state.knowledge_index_path = KNOWLEDGE_INDEX_PATH
+    application.state.demo_knowledge_dir = DEMO_KNOWLEDGE_DIR
     application.add_middleware(RequestIDMiddleware)
     register_exception_handlers(application)
 
