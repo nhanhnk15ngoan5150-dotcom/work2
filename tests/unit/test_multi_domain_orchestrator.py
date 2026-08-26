@@ -3,7 +3,11 @@ from time import perf_counter
 
 from app.contracts.domains import RouteDecision
 from app.contracts.evidence import Evidence, EvidenceDomain, EvidenceType
+from app.contracts.llm import LLMResponse
 from app.contracts.state import AgentState
+from app.domains.llm.service import LLMService
+from app.orchestration.aggregator import EvidenceAggregator
+from app.orchestration.evidence_validator import EvidenceValidator
 from app.orchestration.multi_domain import MultiDomainOrchestrator
 from app.orchestration.planner import DeterministicPlanner
 
@@ -103,3 +107,57 @@ def test_domain_exception_isolated_as_failed_branch_result() -> None:
     assert results[domain].evidence == []
     assert results[domain].errors == ["RuntimeError: domain execution failed"]
     assert results[EvidenceDomain.BUSINESS_DATA].success is False
+
+
+def test_all_validator_rejected_evidence_does_not_call_llm() -> None:
+    class WrongTenantWorkflow(DelayedWorkflow):
+        async def execute(self, state: AgentState) -> AgentState:
+            result = await super().execute(state)
+            result["evidence"] = [
+                result["evidence"][0].model_copy(
+                    update={"tenant_id": "wrong_tenant"}
+                )
+            ]
+            return result
+
+    class CountingLLMProvider:
+        def __init__(self) -> None:
+            self.calls = 0
+
+        async def complete(self, messages) -> LLMResponse:
+            self.calls += 1
+            return LLMResponse(content="不应调用")
+
+    domains = [
+        EvidenceDomain.BUSINESS_DATA,
+        EvidenceDomain.KNOWLEDGE_OPERATION,
+    ]
+    llm = CountingLLMProvider()
+    orchestrator = MultiDomainOrchestrator(
+        DeterministicPlanner(),
+        {
+            domain: WrongTenantWorkflow(domain, [], delay=0)
+            for domain in domains
+        },
+        EvidenceValidator(),
+        EvidenceAggregator(LLMService(llm)),
+    )
+
+    result = asyncio.run(
+        orchestrator.execute(
+            request_id="invalid-evidence-test",
+            tenant_id="dev_tenant",
+            session_id=None,
+            question="multi-domain test",
+            route_decision=RouteDecision(selected_domains=domains),
+        )
+    )
+
+    aggregation = result["aggregation_result"]
+    assert llm.calls == 0
+    assert aggregation.evidence == []
+    assert "NO_VALID_EVIDENCE" in aggregation.errors
+    assert sum(
+        error.startswith("EVIDENCE_TENANT_MISMATCH")
+        for error in aggregation.errors
+    ) == 2

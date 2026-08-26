@@ -34,6 +34,7 @@ class AgentQueryResponse(BaseModel):
     answer: str
     evidence: list[Evidence]
     warnings: list[str]
+    errors: list[str] = Field(default_factory=list)
     trace_metadata: dict[str, JsonValue] = Field(default_factory=dict)
 
 

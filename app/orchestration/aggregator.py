@@ -49,6 +49,15 @@ class EvidenceAggregator:
         ]
         errors.extend(validation_errors)
 
+        if not evidence:
+            return AggregationResult(
+                answer="没有可用于生成回答的有效证据",
+                evidence=[],
+                warnings=warnings,
+                errors=[*errors, "NO_VALID_EVIDENCE"],
+                trace_metadata={"aggregation_mode": "fail_closed"},
+            )
+
         payload = {
             "question": question,
             "execution_plan": plan.model_dump(mode="json"),

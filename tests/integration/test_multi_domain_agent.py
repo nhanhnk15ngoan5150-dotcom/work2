@@ -15,6 +15,7 @@ from app.domains.knowledge.embedding_service import EmbeddingService
 from app.domains.knowledge.indexer import KnowledgeIndexer
 from app.domains.knowledge.retriever import KnowledgeRetriever
 from app.domains.knowledge.service import KnowledgeService
+from app.domains.llm.exceptions import LLMProviderError
 from app.domains.weather.exceptions import WeatherProviderError
 from app.domains.weather.service import WeatherService
 from app.infrastructure.knowledge.local_vector_store import LocalVectorStore
@@ -40,6 +41,12 @@ class FakeLLMProvider:
             total_tokens=180,
             latency_ms=8.0,
         )
+
+
+class FailingLLMProvider(FakeLLMProvider):
+    async def complete(self, messages: Sequence[LLMMessage]) -> LLMResponse:
+        self.calls.append(messages)
+        raise LLMProviderError("sensitive provider failure")
 
 
 class FakeWeatherProvider:
@@ -195,6 +202,8 @@ def test_demo_4_runs_three_domain_fan_out_and_aggregation(
     assert payload["trace_metadata"]["failed_domains"] == []
     assert payload["trace_metadata"]["evidence_count"] == 3
     assert payload["trace_metadata"]["aggregation_mode"] == "llm"
+    assert payload["warnings"] == []
+    assert payload["errors"] == []
 
 
 def test_multi_domain_weather_failure_keeps_other_evidence(
@@ -216,10 +225,12 @@ def test_multi_domain_weather_failure_keeps_other_evidence(
     assert response.status_code == 200
     assert domains == {"BUSINESS_DATA", "KNOWLEDGE_OPERATION"}
     assert "EXTERNAL_FACTOR" not in domains
-    assert any("EXTERNAL_FACTOR" in warning for warning in payload["warnings"])
+    assert not any("EXTERNAL_FACTOR" in warning for warning in payload["warnings"])
+    assert any("EXTERNAL_FACTOR" in error for error in payload["errors"])
     assert payload["trace_metadata"]["failed_domains"] == ["EXTERNAL_FACTOR"]
     assert "天气数据暂不可用" in payload["answer"]
     assert "天气服务暂时不可用" in llm.calls[0][1].content
+    assert len(llm.calls) == 1
 
 
 def test_single_domain_short_paths_do_not_call_llm(settings: Settings) -> None:
@@ -248,4 +259,50 @@ def test_single_domain_short_paths_do_not_call_llm(settings: Settings) -> None:
     assert business.json()["route"] == "BUSINESS_DATA"
     assert weather.json()["route"] == "EXTERNAL_FACTOR"
     assert knowledge.json()["route"] == "KNOWLEDGE_OPERATION"
+    assert business.json()["errors"] == []
+    assert weather.json()["errors"] == []
+    assert knowledge.json()["errors"] == []
+    assert llm.calls == []
+
+
+def test_llm_provider_failure_returns_stable_503_and_app_stays_available(
+    settings: Settings,
+) -> None:
+    llm = FailingLLMProvider("不应返回")
+    application = _create_test_app(settings, FakeWeatherProvider(), llm)
+
+    with TestClient(application) as client:
+        failed = client.post(
+            "/api/v1/agent/query",
+            json={"question": DEMO_4_QUESTION},
+        )
+        business = client.post(
+            "/api/v1/agent/query",
+            json={"question": "7月份营业额是多少？"},
+        )
+
+    assert failed.status_code == 503
+    assert failed.json()["error"]["code"] == "LLM_UNAVAILABLE"
+    assert "sensitive" not in failed.text
+    assert business.status_code == 200
+    assert business.json()["route"] == "BUSINESS_DATA"
+    assert business.json()["errors"] == []
+
+
+def test_single_domain_weather_failure_is_reported_as_error(
+    settings: Settings,
+) -> None:
+    llm = FakeLLMProvider("不应调用")
+    application = _create_test_app(settings, FailingWeatherProvider(), llm)
+
+    with TestClient(application) as client:
+        response = client.post(
+            "/api/v1/agent/query",
+            json={"question": "成都明天天气怎么样？"},
+        )
+
+    payload = response.json()
+    assert response.status_code == 200
+    assert payload["warnings"] == []
+    assert payload["errors"] == ["天气服务暂时不可用"]
     assert llm.calls == []
