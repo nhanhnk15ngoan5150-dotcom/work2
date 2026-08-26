@@ -3,6 +3,7 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from app.core.config import Settings
+from app.infrastructure.database.sqlite import SQLiteBackend
 from app.main import create_app
 
 
@@ -26,3 +27,9 @@ def client(application: FastAPI) -> TestClient:
     with TestClient(application) as test_client:
         yield test_client
 
+
+@pytest.fixture(scope="session")
+def database_backend() -> SQLiteBackend:
+    backend = SQLiteBackend(Settings(_env_file=None).database_url)
+    yield backend
+    backend.dispose()

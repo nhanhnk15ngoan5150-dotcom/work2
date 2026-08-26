@@ -2,6 +2,8 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from app.contracts.evidence import Evidence
+
 
 class ClientRequestContext(BaseModel):
     """Client-supplied request metadata without trusted tenant identity."""
@@ -17,6 +19,19 @@ class TenantContext(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
     tenant_id: str = Field(min_length=1, max_length=128)
+
+
+class AgentQueryRequest(ClientRequestContext):
+    question: str = Field(min_length=1, max_length=2000)
+
+
+class AgentQueryResponse(BaseModel):
+    request_id: str
+    tenant_id: str
+    route: Literal["BUSINESS_DATA"]
+    answer: str
+    evidence: list[Evidence]
+    warnings: list[str]
 
 
 class HealthResponse(BaseModel):
