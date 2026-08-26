@@ -37,7 +37,7 @@ class SalesService:
         )
 
     # 2. 对比最近两个完整月份
-    def compare(self, time_range: ResolvedTimeRange) -> SalesComparison:
+    def compare(self, time_range: ResolvedTimeRange) -> SalesComparison | None:
         if (
             time_range.mode is not TimeRangeMode.COMPARE
             or time_range.current_start is None
@@ -53,7 +53,7 @@ class SalesService:
             time_range.previous_end,
         )
         if current is None or previous is None:
-            raise ValueError("Sales comparison periods must contain data")
+            return None
 
         return SalesComparison(
             current=current,

@@ -57,7 +57,10 @@ class TimeRangeService:
 
         normalized = str(expression).strip().replace(" ", "")
         if normalized == "最近":
-            return self._resolve_recent(data_range.max_date)
+            return self._resolve_recent(
+                data_range.min_date,
+                data_range.max_date,
+            )
 
         explicit_match = re.fullmatch(r"(\d{4})年(.+)", normalized)
         if explicit_match:
@@ -110,7 +113,12 @@ class TimeRangeService:
         return self._out_of_range(start_date, available_start, available_end)
 
     # 3. 解析最近完整月份
-    def _resolve_recent(self, max_date: date) -> ResolvedTimeRange:
+    def _resolve_recent(
+        self,
+        available_start: date,
+        available_end: date,
+    ) -> ResolvedTimeRange:
+        max_date = available_end
         latest_month = date(max_date.year, max_date.month, 1)
         current_start = (
             latest_month
@@ -119,6 +127,27 @@ class TimeRangeService:
         )
         current_end = _add_months(current_start, 1)
         previous_start = _add_months(current_start, -1)
+        range_covers_comparison = (
+            available_start <= previous_start
+            and available_end >= current_end - timedelta(days=1)
+        )
+        if not range_covers_comparison or not self._repository.has_sales_data(
+            current_start,
+            current_end,
+        ) or not self._repository.has_sales_data(
+            previous_start,
+            current_start,
+        ):
+            return ResolvedTimeRange(
+                mode=TimeRangeMode.INSUFFICIENT_DATA,
+                current_start=current_start,
+                current_end=current_end,
+                previous_start=previous_start,
+                previous_end=current_start,
+                available_start=available_start,
+                available_end=available_end,
+            )
+
         return ResolvedTimeRange(
             mode=TimeRangeMode.COMPARE,
             current_start=current_start,

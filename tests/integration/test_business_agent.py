@@ -1,4 +1,37 @@
+from datetime import date
+
+from fastapi import FastAPI
 from fastapi.testclient import TestClient
+
+from app.domains.business.models import DataDateRange, SalesAggregate
+from app.domains.business.product_service import ProductService
+from app.domains.business.sales_service import SalesService
+from app.domains.business.store_service import StoreService
+from app.domains.business.time_service import TimeRangeService
+from app.workflows.business_data import BusinessDataWorkflow
+
+
+class InsufficientComparisonRepository:
+    def get_sales_date_range(self) -> DataDateRange:
+        return DataDateRange(
+            min_date=date(2026, 7, 1),
+            max_date=date(2026, 7, 31),
+        )
+
+    def get_sales_aggregate(
+        self,
+        start_date: date,
+        end_date: date,
+    ) -> SalesAggregate | None:
+        if start_date == date(2026, 7, 1) and end_date == date(2026, 8, 1):
+            return SalesAggregate(total_sales=100.0, order_count=4)
+        return None
+
+    def has_sales_data(self, start_date: date, end_date: date) -> bool:
+        return self.get_sales_aggregate(start_date, end_date) is not None
+
+    def list_product_names(self) -> list[str]:
+        return []
 
 
 def test_sales_question_runs_complete_business_data_chain(
@@ -91,3 +124,27 @@ def test_unimplemented_domain_stops_at_fast_router(client: TestClient) -> None:
 
     assert response.status_code == 400
     assert response.json()["error"]["code"] == "UNSUPPORTED_QUERY"
+
+
+def test_recent_comparison_with_one_month_returns_handled_warning(
+    application: FastAPI,
+) -> None:
+    repository = InsufficientComparisonRepository()
+    application.state.business_data_workflow = BusinessDataWorkflow(
+        TimeRangeService(repository),  # type: ignore[arg-type]
+        SalesService(repository),  # type: ignore[arg-type]
+        StoreService(repository),  # type: ignore[arg-type]
+        ProductService(repository),  # type: ignore[arg-type]
+    )
+
+    with TestClient(application) as test_client:
+        response = test_client.post(
+            "/api/v1/agent/query",
+            json={"question": "最近营业额变化怎么样？"},
+        )
+
+    assert response.status_code == 200
+    assert response.json()["evidence"] == []
+    assert response.json()["warnings"] == [
+        "经营数据不足，无法比较最近两个完整月份"
+    ]

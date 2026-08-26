@@ -61,6 +61,18 @@ class BusinessDataRepository(Repository):
             order_count=int(row[1]),
         )
 
+    def has_sales_data(self, start_date: date, end_date: date) -> bool:
+        statement = (
+            select(sales_table.c.order_id)
+            .where(
+                sales_table.c.date >= start_date.isoformat(),
+                sales_table.c.date < end_date.isoformat(),
+            )
+            .limit(1)
+        )
+        with self._backend.session() as session:
+            return session.scalar(statement) is not None
+
     # 3. 查询门店经营聚合
     def get_store_aggregates(
         self,

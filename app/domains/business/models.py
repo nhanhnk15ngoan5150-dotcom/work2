@@ -9,6 +9,7 @@ class TimeRangeMode(StrEnum):
     MONTH = "month"
     COMPARE = "compare"
     OUT_OF_RANGE = "out_of_range"
+    INSUFFICIENT_DATA = "insufficient_data"
     UNKNOWN = "unknown"
 
 

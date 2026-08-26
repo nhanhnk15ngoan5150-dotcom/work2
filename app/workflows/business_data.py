@@ -110,6 +110,11 @@ class BusinessDataWorkflow:
                 "trace_metadata": updated_trace,
                 "warnings": ["查询时间超出当前经营数据范围"],
             }
+        if time_range.mode is TimeRangeMode.INSUFFICIENT_DATA:
+            return {
+                "trace_metadata": updated_trace,
+                "warnings": ["经营数据不足，无法比较最近两个完整月份"],
+            }
 
         if intent is BusinessIntent.SALES_COMPARISON:
             return self._query_sales_comparison(state, time_range, updated_trace)
@@ -201,6 +206,11 @@ class BusinessDataWorkflow:
         trace: dict,
     ) -> dict:
         comparison = self._sales_service.compare(time_range)
+        if comparison is None:
+            return {
+                "trace_metadata": trace,
+                "warnings": ["经营数据不足，无法比较最近两个完整月份"],
+            }
         evidence = Evidence(
             tenant_id=state["tenant_id"],
             domain=EvidenceDomain.BUSINESS_DATA,
