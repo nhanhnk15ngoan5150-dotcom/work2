@@ -140,4 +140,6 @@ git diff --check
 
 当前 MVP 不包含 Historical Weather、天气与营业额联合统计、复杂 Factor Model、Reranker、Hybrid Search、GraphRAG、Qdrant、Redis、生产级持久 Checkpoint 或高级 Router NLP。`knowledge_index.json` 损坏恢复、原子持久化、Embedding 模型/索引版本迁移，以及 HTTP 429 / Retry-After 的统一策略仍是已记录技术债。
 
-版本进入面试发布冻结：后续只修 Bug，不在 v0.1.0-agent-mvp 中继续加入高风险能力。
+
+
+
