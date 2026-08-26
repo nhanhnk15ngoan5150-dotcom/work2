@@ -23,7 +23,7 @@ class Settings(BaseSettings):
     )
 
     app_name: str = "Restaurant Business AI"
-    app_version: str = "0.1.0"
+    app_version: str = "0.1.0-agent-mvp"
     environment: Literal["development", "test", "staging", "production"] = (
         "development"
     )
@@ -46,6 +46,22 @@ class Settings(BaseSettings):
     embedding_model: str = Field(
         default="text-embedding-3-small",
         validation_alias=AliasChoices("EMBEDDING_MODEL", "APP_EMBEDDING_MODEL"),
+    )
+    llm_provider: str = Field(
+        default="openai_compatible",
+        validation_alias=AliasChoices("LLM_PROVIDER", "APP_LLM_PROVIDER"),
+    )
+    llm_base_url: str = Field(
+        default="https://api.deepseek.com",
+        validation_alias=AliasChoices("LLM_BASE_URL", "APP_LLM_BASE_URL"),
+    )
+    llm_api_key: str | None = Field(
+        default=None,
+        validation_alias=AliasChoices("LLM_API_KEY", "APP_LLM_API_KEY"),
+    )
+    llm_model: str = Field(
+        default="deepseek-v4-flash",
+        validation_alias=AliasChoices("LLM_MODEL", "APP_LLM_MODEL"),
     )
 
 

@@ -1,47 +1,64 @@
 # Restaurant Business AI
 
-餐饮经营数据分析与经营决策 SaaS Agent。当前版本已完成 **Batch 3: Weather + Minimal RAG + Knowledge & Operation**，提供三条独立运行的单领域支线。
+餐饮经营数据分析与经营决策 SaaS Agent。当前发布版本为 **v0.1.0-agent-mvp**：三个已验证 Domain 既可走低成本单领域短路径，也可通过 LangGraph Planner、动态 Fan-out/Fan-in、Evidence Validator 和 LLM Aggregator 完成多领域综合回答。
 
-## 当前能力
+## 项目能力
 
-- FastAPI 应用与 `GET /health`
-- 基于环境变量和 `.env` 的配置
-- 统一应用异常与参数校验错误响应
-- JSON 日志基础配置
-- `X-Request-ID` 请求链路标识
-- 多租户请求、Evidence、Agent State 基础契约
-- SQLAlchemy Session 生命周期与 SQLiteBackend
-- 数据驱动的月份、越界范围及“最近”时间语义
-- 营业额、订单量、客单价及月度对比
-- 门店经营排名和商品销售额、销量、排名
-- 确定性 Fast Router 与 Business Data LangGraph Workflow
-- 统一 `Evidence[]` 输出，事实证据不伪造 confidence
-- Open-Meteo Current / Forecast Provider 与 External Factor Workflow
-- txt / md Parser、确定性 Chunker 和 OpenAI-compatible Embedding Provider
-- 带 Tenant / Domain Guard、threshold、Citation 的轻量本地向量检索
-- Knowledge & Operation Workflow 与严格 `NO_KNOWLEDGE` 结果
-- 明显多领域问题在 Batch 3 返回 Planner-required 错误，不执行错误的单领域分析
+- Business Data：SQLAlchemy + 只读 SQLite，支持时间范围、营业额、订单、客单价、门店和商品分析
+- External Factor：Open-Meteo Current / Forecast，输出 FACT 或 PREDICTION Evidence
+- Knowledge & Operation：轻量 RAG、Tenant/Domain Guard、阈值、Citation 和 `NO_KNOWLEDGE`
+- Deterministic Planner：根据 Fast Router 的结构化结果生成 `ExecutionPlan`
+- LangGraph：仅对真正的多领域问题进行动态并行 Fan-out/Fan-in
+- Evidence Layer：统一强类型 Contract，并在聚合前校验 tenant、domain 和数据结构
+- Aggregator：只接收已验证 Evidence 和 Domain 状态，通过 OpenAI-compatible LLM Provider 生成回答
+- Failure Isolation：单个 Domain 失败不丢弃其他成功 Evidence
+- 可观测性：记录计划/完成/失败 Domain、Evidence 数量和可用 LLM token/latency 元数据
+
+## 架构
+
+```mermaid
+flowchart TD
+    U[User] --> API[FastAPI]
+    API --> R[Fast Router]
+    R -->|Single Domain| S[Existing Domain Workflow]
+    S --> SE[Evidence + Deterministic Answer]
+    R -->|Multi Domain| P[Deterministic Planner]
+    P --> EP[ExecutionPlan]
+    EP --> F{LangGraph Dynamic Fan-out}
+    F --> B[Business Data Workflow]
+    F --> W[External Factor Workflow]
+    F --> K[Knowledge Operation Workflow]
+    B --> FI[Reducer / Fan-in]
+    W --> FI
+    K --> FI
+    FI --> V[Evidence Validator]
+    V --> A[Evidence Aggregator]
+    A --> L[LLM Service / Provider]
+    L --> O[Final Answer]
+```
+
+单领域问题不会调用 Planner 或 LLM。每个多领域分支使用独立 `AgentState`，只通过统一 `DomainExecutionResult` 汇入 reducer，避免并行状态覆盖。
 
 ## 目录
 
 ```text
 app/
-├── api/routes/          # HTTP 路由
-├── contracts/           # Evidence、State、Provider、Domain 契约
+├── api/routes/          # FastAPI 路由
+├── contracts/           # Evidence、Domain、Orchestration、LLM 契约
 ├── core/                # 配置、异常、日志
-├── domains/business/    # 经营数据 Repository 与 Service
-├── infrastructure/      # SQLite 与 SQLAlchemy 适配器
-├── middleware/          # Request ID 中间件
-├── routing/             # 确定性 Fast Router
-├── workflows/           # LangGraph 领域工作流
-└── main.py              # FastAPI 应用工厂
+├── domains/             # Business、Weather、Knowledge、LLM Service
+├── infrastructure/      # SQLite、Weather、Embedding、Vector Store、LLM Adapter
+├── orchestration/       # Planner、LangGraph、Validator、Aggregator
+├── routing/             # Fast Router
+├── workflows/           # 三条独立 Domain Workflow
+└── main.py              # 应用工厂与依赖组装
 tests/
-├── golden/              # work1 Verified Baseline 对齐测试
-├── integration/         # API 集成测试
-└── unit/                # 配置与契约单元测试
+├── golden/              # 旧系统 Verified Business Baseline
+├── integration/         # API、Multi-Domain、Partial Failure
+└── unit/                # Contract、Provider、Service、Orchestration
 ```
 
-## Windows / PyCharm 运行
+## 安装与运行
 
 推荐 Python 3.11 或 3.12。
 
@@ -53,28 +70,27 @@ Copy-Item .env.example .env
 uvicorn app.main:app --reload
 ```
 
-PyCharm 中可将 `.venv\Scripts\python.exe` 配置为项目解释器，并以 `uvicorn app.main:app --reload` 启动。接口文档位于 `http://127.0.0.1:8000/docs`。
+PyCharm 中将 `.venv\Scripts\python.exe` 配置为项目解释器，以项目根目录为 Working directory，启动 `uvicorn app.main:app --reload`。接口文档位于 `http://127.0.0.1:8000/docs`。
 
-## 健康检查
+核心 `.env` 配置：
 
-```powershell
-Invoke-RestMethod http://127.0.0.1:8000/health
+```dotenv
+APP_DEFAULT_TENANT_ID=dev_tenant
+EMBEDDING_PROVIDER=openai_compatible
+EMBEDDING_BASE_URL=https://api.openai.com/v1
+EMBEDDING_API_KEY=
+EMBEDDING_MODEL=text-embedding-3-small
+LLM_PROVIDER=openai_compatible
+LLM_BASE_URL=https://api.deepseek.com
+LLM_API_KEY=
+LLM_MODEL=deepseek-v4-flash
 ```
 
-响应示例：
+天气使用 Open-Meteo，无需 API Key。正式多领域聚合需要配置 DeepSeek 或其他 OpenAI-compatible LLM。未配置 `LLM_API_KEY` 时应用仍可启动，三个单领域短路径继续可用，多领域请求返回明确的 `LLM_NOT_CONFIGURED`。
 
-```json
-{
-  "status": "ok",
-  "service": "Restaurant Business AI",
-  "version": "0.1.0",
-  "environment": "development"
-}
-```
+## API 与四个 Demo
 
-每个响应都包含 `X-Request-ID`。调用方传入该请求头时服务会复用它，否则服务自动生成 UUID。
-
-## Business Data 查询
+统一接口：
 
 ```powershell
 $body = @{ question = "7月份营业额是多少？" } | ConvertTo-Json
@@ -85,49 +101,43 @@ Invoke-RestMethod `
   -Body $body
 ```
 
-当前可测试问题：
+1. `7月份营业额是多少？`
+   - Business Data → SQLAlchemy → 只读 SQLite → FACT Evidence
+2. `成都明天天气怎么样？`
+   - External Factor → Weather Provider → PREDICTION Evidence
+3. `会员折扣和满减可以同时使用吗？`
+   - Knowledge → Tenant Guard → Citation / `NO_KNOWLEDGE`
+4. `明天成都下雨，结合最近营业额和公司的雨天运营规范应该注意什么？`
+   - Planner → 三 Domain 并行 → Validator → Aggregator → LLM
 
-- `7月份营业额是多少？`
-- `最近营业额变化怎么样？`
-- `最近哪个门店表现最好？`
-- `六月可乐销量怎么样？`
+Demo 4 的 Aggregator 被要求区分事实、预测和企业知识，并明确说明：没有历史天气与营业额联合样本时，不能把天气直接解释为营业额变化的因果原因，也不能编造定量影响。
 
-单领域天气和知识问题示例：
+## 安全与数据边界
 
-- `上海明天天气怎么样？`
-- `会员折扣和满减可以同时使用吗？`
-
-天气服务使用 Open-Meteo，不需要 API Key。知识检索的正式 Embedding 实现使用 OpenAI-compatible API，通过 `.env` 中的 `EMBEDDING_BASE_URL`、`EMBEDDING_API_KEY` 和 `EMBEDDING_MODEL` 配置。
-
-客户端请求不接受可信 `tenant_id`。开发租户由服务端配置解析，默认使用 `dev_tenant`。
+- 客户端不能提交可信 `tenant_id`；开发租户由服务端解析，默认 `dev_tenant`
+- `data/moneki.db` 以 SQLite 只读模式打开；Repository 使用 SQLAlchemy Expression，不暴露 raw SQL execute 契约
+- Knowledge 检索同时执行 Tenant Guard、Domain Guard、阈值和 Citation 约束
+- RAG 内容作为不可信数据进入 Aggregator，不能覆盖 System Prompt 或被当作指令执行
+- LLM 仅接收结构化 Validated Evidence，不接收数据库 rows、天气原始 JSON 或完整文档对象
+- 日志不记录 API Key
 
 ## 测试
 
 ```powershell
-python -m pytest -q -p no:cacheprovider
+.\.venv\Scripts\python.exe -m pytest -q -p no:cacheprovider
+.\.venv\Scripts\python.exe -m compileall -q app tests
+.\.venv\Scripts\python.exe -m pip check
+git diff --check
 ```
 
-测试不访问互联网，不要求 LLM、天气 API、PostgreSQL、MySQL 或向量数据库。
+测试使用 Fake/Mock Weather、Embedding 和 LLM，不访问真实互联网。Business Golden Tests 使用项目数据库副本，确保新架构结果与旧系统已验证口径一致。
 
 ## Demo Knowledge
 
-`data/demo_knowledge/` 中的会员优惠规则、雨天运营规范等内容，是为项目演示构造的示例企业知识，并非真实企业制度。知识向量索引与经营数据库 `data/moneki.db` 完全隔离。
+`data/demo_knowledge/` 中的会员规则和雨天运营规范仅为演示构造内容，不代表真实企业制度。知识索引与经营数据库完全隔离。
 
-## 架构边界
+## 已知限制与后续路线
 
-单领域运行链路：
+当前 MVP 不包含 Historical Weather、天气与营业额联合统计、复杂 Factor Model、Reranker、Hybrid Search、GraphRAG、Qdrant、Redis、生产级持久 Checkpoint 或高级 Router NLP。`knowledge_index.json` 损坏恢复、原子持久化、Embedding 模型/索引版本迁移，以及 HTTP 429 / Retry-After 的统一策略仍是已记录技术债。
 
-```text
-                         Fast Router
-                              │
-             ┌────────────────┼────────────────┐
-             ↓                ↓                ↓
-      BUSINESS_DATA    EXTERNAL_FACTOR  KNOWLEDGE_OPERATION
-             ↓                ↓                ↓
-    Business Workflow      Weather          Minimal RAG
-             └────────────────┼────────────────┘
-                              ↓
-                           Evidence
-```
-
-Repository 使用 SQLAlchemy Expression，不依赖 raw SQL string。当前只真实实现 SQLite；PostgreSQL 和 MySQL 仅保留 DatabaseBackend 扩展边界。Planner、Aggregator、并行多领域执行和 Multi-Agent 属于后续 Batch，当前未实现。
+版本进入面试发布冻结：后续只修 Bug，不在 v0.1.0-agent-mvp 中继续加入高风险能力。

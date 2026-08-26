@@ -44,3 +44,15 @@ def test_project_data_paths_do_not_depend_on_working_directory(
     )
     assert KNOWLEDGE_INDEX_PATH == PROJECT_ROOT / "data" / "knowledge_index.json"
     assert DEMO_KNOWLEDGE_DIR == PROJECT_ROOT / "data" / "demo_knowledge"
+
+
+def test_settings_load_llm_environment(monkeypatch) -> None:
+    monkeypatch.setenv("LLM_BASE_URL", "https://llm.example")
+    monkeypatch.setenv("LLM_API_KEY", "llm-key")
+    monkeypatch.setenv("LLM_MODEL", "deepseek-v4-pro")
+
+    settings = Settings(_env_file=None)
+
+    assert settings.llm_base_url == "https://llm.example"
+    assert settings.llm_api_key == "llm-key"
+    assert settings.llm_model == "deepseek-v4-pro"

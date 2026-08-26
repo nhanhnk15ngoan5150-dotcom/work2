@@ -49,6 +49,7 @@ def test_sales_question_runs_complete_business_data_chain(
     assert payload["request_id"] == "sales-demo"
     assert payload["tenant_id"] == "dev_tenant"
     assert payload["route"] == "BUSINESS_DATA"
+    assert payload["selected_domains"] == ["BUSINESS_DATA"]
     assert payload["answer"] == "2026年7月营业额为 151572.00 元。"
     assert payload["evidence"][0]["value"]["total_sales"] == 151572.0
     assert payload["evidence"][0]["confidence"] is None
@@ -127,14 +128,14 @@ def test_unsupported_question_stops_at_fast_router(client: TestClient) -> None:
     assert response.json()["error"]["code"] == "UNSUPPORTED_QUERY"
 
 
-def test_multi_domain_question_requires_planner(client: TestClient) -> None:
+def test_multi_domain_question_requires_configured_llm(client: TestClient) -> None:
     response = client.post(
         "/api/v1/agent/query",
         json={"question": "明天下雨会不会影响营业额？"},
     )
 
-    assert response.status_code == 400
-    assert response.json()["error"]["code"] == "MULTI_DOMAIN_REQUIRES_PLANNER"
+    assert response.status_code == 503
+    assert response.json()["error"]["code"] == "LLM_NOT_CONFIGURED"
 
 
 def test_recent_comparison_with_one_month_returns_handled_warning(

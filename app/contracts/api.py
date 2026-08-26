@@ -1,8 +1,9 @@
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, JsonValue
 
 from app.contracts.evidence import Evidence, EvidenceDomain
+from app.contracts.orchestration import AgentRoute
 
 
 class ClientRequestContext(BaseModel):
@@ -28,10 +29,12 @@ class AgentQueryRequest(ClientRequestContext):
 class AgentQueryResponse(BaseModel):
     request_id: str
     tenant_id: str
-    route: EvidenceDomain
+    route: AgentRoute
+    selected_domains: list[EvidenceDomain] = Field(default_factory=list)
     answer: str
     evidence: list[Evidence]
     warnings: list[str]
+    trace_metadata: dict[str, JsonValue] = Field(default_factory=dict)
 
 
 class HealthResponse(BaseModel):

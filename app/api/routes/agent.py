@@ -3,9 +3,11 @@ from fastapi import APIRouter, Request
 from app.contracts.api import AgentQueryRequest, AgentQueryResponse
 from app.contracts.domains import DomainWorkflow
 from app.contracts.evidence import EvidenceDomain
+from app.contracts.orchestration import AgentRoute
 from app.contracts.state import AgentState
 from app.core.exceptions import AppException
 from app.core.tenant import resolve_default_tenant_context
+from app.orchestration.multi_domain import MultiDomainOrchestrator
 from app.routing.fast_router import FastRouter
 
 router = APIRouter(prefix="/api/v1/agent", tags=["agent"])
@@ -18,10 +20,32 @@ async def query_agent(payload: AgentQueryRequest, request: Request) -> AgentQuer
     fast_router: FastRouter = request.app.state.fast_router
     route_decision = fast_router.decide(payload.question)
     if route_decision.is_multi_domain:
-        raise AppException(
-            code="MULTI_DOMAIN_REQUIRES_PLANNER",
-            message="Multi-domain query requires planner execution",
-            status_code=400,
+        orchestrator: MultiDomainOrchestrator | None = (
+            request.app.state.multi_domain_orchestrator
+        )
+        if orchestrator is None:
+            raise AppException(
+                code="LLM_NOT_CONFIGURED",
+                message="Multi-domain aggregation requires an LLM provider",
+                status_code=503,
+            )
+        result = await orchestrator.execute(
+            request_id=request.state.request_id,
+            tenant_id=tenant_context.tenant_id,
+            session_id=payload.session_id,
+            question=payload.question,
+            route_decision=route_decision,
+        )
+        aggregation = result["aggregation_result"]
+        return AgentQueryResponse(
+            request_id=result["request_id"],
+            tenant_id=result["tenant_id"],
+            route=AgentRoute.MULTI_DOMAIN,
+            selected_domains=result["execution_plan"].selected_domains,
+            answer=aggregation.answer,
+            evidence=aggregation.evidence,
+            warnings=[*aggregation.warnings, *aggregation.errors],
+            trace_metadata=result["trace_metadata"],
         )
 
     selected_domain = route_decision.domain
@@ -71,7 +95,8 @@ async def query_agent(payload: AgentQueryRequest, request: Request) -> AgentQuer
     return AgentQueryResponse(
         request_id=result["request_id"],
         tenant_id=result["tenant_id"],
-        route=selected_domain,
+        route=AgentRoute.from_domain(selected_domain),
+        selected_domains=[selected_domain],
         answer=result["final_answer"] or "没有查询到经营数据",
         evidence=result["evidence"],
         warnings=[*result["warnings"], *result["errors"]],

@@ -17,7 +17,7 @@ from app.core.logging import configure_logging
 from app.contracts.domains import DomainWorkflow
 from app.contracts.evidence import EvidenceDomain
 from app.contracts.knowledge import KnowledgeMetadata
-from app.contracts.providers import EmbeddingProvider
+from app.contracts.providers import EmbeddingProvider, LLMProvider
 from app.middleware.request_id import RequestIDMiddleware
 from app.domains.business.product_service import ProductService
 from app.domains.business.repository import BusinessDataRepository
@@ -31,12 +31,18 @@ from app.domains.knowledge.indexer import KnowledgeIndexer
 from app.domains.knowledge.parser import TextDocumentParser
 from app.domains.knowledge.retriever import KnowledgeRetriever
 from app.domains.knowledge.service import KnowledgeService
+from app.domains.llm.service import LLMService
 from app.domains.weather.service import WeatherService
 from app.infrastructure.knowledge.local_vector_store import LocalVectorStore
 from app.infrastructure.knowledge.openai_embeddings import (
     OpenAICompatibleEmbeddingProvider,
 )
+from app.infrastructure.llm.openai_compatible import OpenAICompatibleLLMProvider
 from app.infrastructure.weather.open_meteo import OpenMeteoWeatherProvider
+from app.orchestration.aggregator import EvidenceAggregator
+from app.orchestration.evidence_validator import EvidenceValidator
+from app.orchestration.multi_domain import MultiDomainOrchestrator
+from app.orchestration.planner import DeterministicPlanner
 from app.routing.fast_router import FastRouter
 from app.workflows.business_data import BusinessDataWorkflow
 from app.workflows.external_factor import ExternalFactorWorkflow
@@ -49,6 +55,7 @@ def create_app(
     settings: Settings | None = None,
     *,
     embedding_provider_override: EmbeddingProvider | None = None,
+    llm_provider_override: LLMProvider | None = None,
 ) -> FastAPI:
     """Create and configure the FastAPI application."""
     # 1. 加载应用配置
@@ -105,6 +112,29 @@ def create_app(
             )
         )
 
+    # 4. 初始化可选 Multi-Domain 聚合依赖
+    llm_provider: LLMProvider | None = llm_provider_override
+    owned_llm_provider: OpenAICompatibleLLMProvider | None = None
+    if llm_provider is None and (
+        app_settings.llm_provider == "openai_compatible"
+        and app_settings.llm_api_key
+    ):
+        owned_llm_provider = OpenAICompatibleLLMProvider(
+            base_url=app_settings.llm_base_url,
+            api_key=app_settings.llm_api_key,
+            model=app_settings.llm_model,
+        )
+        llm_provider = owned_llm_provider
+
+    multi_domain_orchestrator: MultiDomainOrchestrator | None = None
+    if llm_provider is not None:
+        multi_domain_orchestrator = MultiDomainOrchestrator(
+            DeterministicPlanner(),
+            domain_workflows,
+            EvidenceValidator(),
+            EvidenceAggregator(LLMService(llm_provider)),
+        )
+
     demo_documents = []
     if knowledge_indexer is not None:
         parser = TextDocumentParser()
@@ -148,8 +178,10 @@ def create_app(
             await weather_provider.close()
             if owned_embedding_provider is not None:
                 await owned_embedding_provider.close()
+            if owned_llm_provider is not None:
+                await owned_llm_provider.close()
 
-    # 4. 创建应用并注册基础设施
+    # 5. 创建应用并注册基础设施
     application = FastAPI(
         title=app_settings.app_name,
         version=app_settings.app_version,
@@ -161,6 +193,7 @@ def create_app(
     application.state.business_data_workflow = workflow
     application.state.external_factor_workflow = external_factor_workflow
     application.state.domain_workflows = domain_workflows
+    application.state.multi_domain_orchestrator = multi_domain_orchestrator
     application.state.knowledge_ready = False
     application.state.knowledge_bootstrap_error = None
     application.state.knowledge_index_path = KNOWLEDGE_INDEX_PATH
@@ -168,7 +201,7 @@ def create_app(
     application.add_middleware(RequestIDMiddleware)
     register_exception_handlers(application)
 
-    # 5. 注册基础路由
+    # 6. 注册基础路由
     application.include_router(health_router)
     application.include_router(agent_router)
     return application

@@ -115,7 +115,13 @@ class ExternalFactorWorkflow:
             maxsplit=1,
         )[0]
         location = re.sub(r"^(请问|请查询|查询|查一下)", "", prefix).strip(" ，,。？?")
-        return location or None
+        if location:
+            return location
+        temporal_prefix = re.search(
+            r"(?:明天|今天|现在|当前)([\u4e00-\u9fff]{2,12}?)(?:下雨|降雨|天气|气温|温度|预报)",
+            question,
+        )
+        return temporal_prefix.group(1) if temporal_prefix else None
 
     @staticmethod
     def _source_id(

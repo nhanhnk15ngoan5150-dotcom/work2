@@ -96,6 +96,33 @@ def test_external_factor_tomorrow_returns_prediction_evidence() -> None:
     service.get_forecast.assert_awaited_once_with("成都", days=2)
 
 
+def test_external_factor_extracts_location_after_temporal_prefix() -> None:
+    service = AsyncMock(spec=WeatherService)
+    service.get_forecast.return_value = [
+        WeatherForecast(
+            location=_location(),
+            date=date(2026, 8, 26),
+            source="open-meteo",
+        ),
+        WeatherForecast(
+            location=_location(),
+            date=date(2026, 8, 27),
+            weather_type="moderate_rain",
+            source="open-meteo",
+        ),
+    ]
+
+    result = asyncio.run(
+        ExternalFactorWorkflow(service).execute(
+            _state("明天成都下雨，结合最近营业额应该注意什么？")
+        )
+    )
+
+    assert result["warnings"] == []
+    assert result["evidence"][0].evidence_type is EvidenceType.PREDICTION
+    service.get_forecast.assert_awaited_once_with("成都", days=2)
+
+
 def test_external_factor_handles_location_not_found() -> None:
     service = AsyncMock(spec=WeatherService)
     service.get_current.side_effect = WeatherLocationNotFoundError("not found")

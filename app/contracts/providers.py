@@ -1,11 +1,12 @@
-from collections.abc import Mapping, Sequence
+from collections.abc import Sequence
 from contextlib import AbstractContextManager
 from pathlib import Path
-from typing import Any, Protocol, TypeVar
+from typing import Protocol, TypeVar
 
 from app.contracts.weather import WeatherForecast, WeatherSnapshot
 from app.contracts.evidence import EvidenceDomain
 from app.contracts.knowledge import Chunk, Document, KnowledgeMetadata, RetrievalResult
+from app.contracts.llm import LLMMessage, LLMResponse
 
 SessionT_co = TypeVar("SessionT_co", covariant=True)
 
@@ -19,7 +20,7 @@ class DatabaseBackend(Protocol[SessionT_co]):
 class LLMProvider(Protocol):
     """Vendor-neutral completion boundary."""
 
-    async def complete(self, messages: Sequence[Mapping[str, str]]) -> str: ...
+    async def complete(self, messages: Sequence[LLMMessage]) -> LLMResponse: ...
 
 
 class EmbeddingProvider(Protocol):
