@@ -10,10 +10,13 @@ from app.main import create_app
 @pytest.fixture
 def settings() -> Settings:
     return Settings(
+        _env_file=None,
         app_name="Restaurant Business AI Test",
         app_version="0.1.0-test",
         environment="test",
         log_level="CRITICAL",
+        embedding_api_key=None,
+        llm_api_key=None,
     )
 
 
