@@ -25,6 +25,27 @@ def _geocoding_payload() -> dict:
     }
 
 
+def test_open_meteo_owned_client_does_not_inherit_environment_proxy(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    captured: dict = {}
+
+    class FakeAsyncClient:
+        async def aclose(self) -> None:
+            return None
+
+    def create_client(**kwargs):
+        captured.update(kwargs)
+        return FakeAsyncClient()
+
+    monkeypatch.setattr(httpx, "AsyncClient", create_client)
+
+    provider = OpenMeteoWeatherProvider()
+    asyncio.run(provider.close())
+
+    assert captured["trust_env"] is False
+
+
 async def _get_current(
     handler,
     *,

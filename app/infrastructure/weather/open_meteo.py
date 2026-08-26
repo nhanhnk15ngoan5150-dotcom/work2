@@ -78,7 +78,7 @@ class OpenMeteoWeatherProvider:
             raise ValueError("Weather timeout must be positive")
         if max_retries < 0:
             raise ValueError("Weather max retries cannot be negative")
-        self._client = client or httpx.AsyncClient()
+        self._client = client or httpx.AsyncClient(trust_env=False)
         self._owns_client = client is None
         self._timeout = httpx.Timeout(timeout_seconds)
         self._max_retries = max_retries
