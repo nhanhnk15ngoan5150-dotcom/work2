@@ -1,6 +1,6 @@
 # Restaurant Business AI
 
-餐饮经营数据分析与经营决策 SaaS Agent。当前版本已完成 **Batch 2: Business Data**，提供一条基于 LangGraph、SQLAlchemy 和 SQLite 的可运行经营数据纵向链路。
+餐饮经营数据分析与经营决策 SaaS Agent。当前版本已完成 **Batch 3: Weather + Minimal RAG + Knowledge & Operation**，提供三条独立运行的单领域支线。
 
 ## 当前能力
 
@@ -16,6 +16,11 @@
 - 门店经营排名和商品销售额、销量、排名
 - 确定性 Fast Router 与 Business Data LangGraph Workflow
 - 统一 `Evidence[]` 输出，事实证据不伪造 confidence
+- Open-Meteo Current / Forecast Provider 与 External Factor Workflow
+- txt / md Parser、确定性 Chunker 和 OpenAI-compatible Embedding Provider
+- 带 Tenant / Domain Guard、threshold、Citation 的轻量本地向量检索
+- Knowledge & Operation Workflow 与严格 `NO_KNOWLEDGE` 结果
+- 明显多领域问题在 Batch 3 返回 Planner-required 错误，不执行错误的单领域分析
 
 ## 目录
 
@@ -87,6 +92,13 @@ Invoke-RestMethod `
 - `最近哪个门店表现最好？`
 - `六月可乐销量怎么样？`
 
+单领域天气和知识问题示例：
+
+- `上海明天天气怎么样？`
+- `会员折扣和满减可以同时使用吗？`
+
+天气服务使用 Open-Meteo，不需要 API Key。知识检索的正式 Embedding 实现使用 OpenAI-compatible API，通过 `.env` 中的 `EMBEDDING_BASE_URL`、`EMBEDDING_API_KEY` 和 `EMBEDDING_MODEL` 配置。
+
 客户端请求不接受可信 `tenant_id`。开发租户由服务端配置解析，默认使用 `dev_tenant`。
 
 ## 测试
@@ -97,21 +109,25 @@ python -m pytest -q -p no:cacheprovider
 
 测试不访问互联网，不要求 LLM、天气 API、PostgreSQL、MySQL 或向量数据库。
 
+## Demo Knowledge
+
+`data/demo_knowledge/` 中的会员优惠规则、雨天运营规范等内容，是为项目演示构造的示例企业知识，并非真实企业制度。知识向量索引与经营数据库 `data/moneki.db` 完全隔离。
+
 ## 架构边界
 
-运行链路：
+单领域运行链路：
 
 ```text
-FastAPI
-→ Fast Router
-→ Business Data Workflow
-→ Service
-→ Repository
-→ DatabaseBackend
-→ SQLAlchemy Session
-→ SQLite
-→ Evidence
-→ Response
+                         Fast Router
+                              │
+             ┌────────────────┼────────────────┐
+             ↓                ↓                ↓
+      BUSINESS_DATA    EXTERNAL_FACTOR  KNOWLEDGE_OPERATION
+             ↓                ↓                ↓
+    Business Workflow      Weather          Minimal RAG
+             └────────────────┼────────────────┘
+                              ↓
+                           Evidence
 ```
 
-Repository 使用 SQLAlchemy Expression，不依赖 raw SQL string。当前只真实实现 SQLite；PostgreSQL 和 MySQL 仅保留 DatabaseBackend 扩展边界。天气、RAG、Planner、Aggregator 和 Multi-Agent 不属于 Batch 2，尚未实现。
+Repository 使用 SQLAlchemy Expression，不依赖 raw SQL string。当前只真实实现 SQLite；PostgreSQL 和 MySQL 仅保留 DatabaseBackend 扩展边界。Planner、Aggregator、并行多领域执行和 Multi-Agent 属于后续 Batch，当前未实现。

@@ -57,8 +57,16 @@ class BusinessDataWorkflow:
         graph.add_edge("format_answer", END)
         self._graph = graph.compile()
 
-    async def run(self, state: AgentState) -> AgentState:
+    @property
+    def domain(self) -> EvidenceDomain:
+        return EvidenceDomain.BUSINESS_DATA
+
+    async def execute(self, state: AgentState) -> AgentState:
         return cast(AgentState, await self._graph.ainvoke(state))
+
+    async def run(self, state: AgentState) -> AgentState:
+        """Compatibility wrapper for the frozen Batch 2 interface."""
+        return await self.execute(state)
 
     # 1. 识别经营意图和实体
     def _analyze_question(self, state: AgentState) -> dict:

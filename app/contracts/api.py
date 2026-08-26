@@ -2,7 +2,7 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from app.contracts.evidence import Evidence
+from app.contracts.evidence import Evidence, EvidenceDomain
 
 
 class ClientRequestContext(BaseModel):
@@ -28,7 +28,7 @@ class AgentQueryRequest(ClientRequestContext):
 class AgentQueryResponse(BaseModel):
     request_id: str
     tenant_id: str
-    route: Literal["BUSINESS_DATA"]
+    route: EvidenceDomain
     answer: str
     evidence: list[Evidence]
     warnings: list[str]

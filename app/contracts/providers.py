@@ -1,6 +1,11 @@
 from collections.abc import Mapping, Sequence
 from contextlib import AbstractContextManager
+from pathlib import Path
 from typing import Any, Protocol, TypeVar
+
+from app.contracts.weather import WeatherForecast, WeatherSnapshot
+from app.contracts.evidence import EvidenceDomain
+from app.contracts.knowledge import Chunk, Document, KnowledgeMetadata, RetrievalResult
 
 SessionT_co = TypeVar("SessionT_co", covariant=True)
 
@@ -23,23 +28,34 @@ class EmbeddingProvider(Protocol):
     async def embed(self, texts: Sequence[str]) -> list[list[float]]: ...
 
 
+class DocumentParser(Protocol):
+    """Parser boundary for supported enterprise knowledge documents."""
+
+    def parse(self, path: Path, metadata: KnowledgeMetadata) -> Document: ...
+
+
 class WeatherProvider(Protocol):
     """Weather data source boundary."""
 
-    async def current(self, location: str) -> Mapping[str, Any]: ...
+    async def current(self, location: str) -> WeatherSnapshot: ...
 
-    async def forecast(self, location: str, days: int) -> Sequence[Mapping[str, Any]]: ...
+    async def forecast(self, location: str, days: int) -> list[WeatherForecast]: ...
 
 
 class VectorStoreProvider(Protocol):
     """Vector persistence and similarity search boundary."""
 
-    def upsert(self, items: Sequence[Mapping[str, Any]]) -> None: ...
+    def upsert(
+        self,
+        chunks: Sequence[Chunk],
+        vectors: Sequence[Sequence[float]],
+    ) -> None: ...
 
     def search(
         self,
         vector: Sequence[float],
         *,
         tenant_id: str,
+        domains: Sequence[EvidenceDomain],
         limit: int,
-    ) -> Sequence[Mapping[str, Any]]: ...
+    ) -> list[RetrievalResult]: ...

@@ -8,6 +8,7 @@ from app.domains.business.product_service import ProductService
 from app.domains.business.sales_service import SalesService
 from app.domains.business.store_service import StoreService
 from app.domains.business.time_service import TimeRangeService
+from app.contracts.evidence import EvidenceDomain
 from app.workflows.business_data import BusinessDataWorkflow
 
 
@@ -116,14 +117,24 @@ def test_client_cannot_supply_tenant_identity(client: TestClient) -> None:
     assert response.json()["error"]["code"] == "VALIDATION_ERROR"
 
 
-def test_unimplemented_domain_stops_at_fast_router(client: TestClient) -> None:
+def test_unsupported_question_stops_at_fast_router(client: TestClient) -> None:
     response = client.post(
         "/api/v1/agent/query",
-        json={"question": "明天天气怎么样？"},
+        json={"question": "帮我写一首诗"},
     )
 
     assert response.status_code == 400
     assert response.json()["error"]["code"] == "UNSUPPORTED_QUERY"
+
+
+def test_multi_domain_question_requires_planner(client: TestClient) -> None:
+    response = client.post(
+        "/api/v1/agent/query",
+        json={"question": "明天下雨会不会影响营业额？"},
+    )
+
+    assert response.status_code == 400
+    assert response.json()["error"]["code"] == "MULTI_DOMAIN_REQUIRES_PLANNER"
 
 
 def test_recent_comparison_with_one_month_returns_handled_warning(
@@ -135,6 +146,9 @@ def test_recent_comparison_with_one_month_returns_handled_warning(
         SalesService(repository),  # type: ignore[arg-type]
         StoreService(repository),  # type: ignore[arg-type]
         ProductService(repository),  # type: ignore[arg-type]
+    )
+    application.state.domain_workflows[EvidenceDomain.BUSINESS_DATA] = (
+        application.state.business_data_workflow
     )
 
     with TestClient(application) as test_client:
